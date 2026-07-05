@@ -35,11 +35,22 @@ try {
 }
 
 // 3. إعدادات API-Football
-const API_KEY = process.env.zscores || "33f4987f1f0263669d631c6e0264076c";
 const API_URL = "https://v3.football.api-sports.io/";
-const headers = { "x-apisports-key": API_KEY };
 
 const delay = (ms) => new Promise(res => setTimeout(res, ms));
+
+async function getHeaders() {
+    try {
+        const docSnap = await db.collection("config").doc("main").get();
+        if (docSnap.exists && docSnap.data().apiFootballKey) {
+            return { "x-apisports-key": docSnap.data().apiFootballKey };
+        }
+    } catch (e) {
+        console.error("Failed to fetch dynamic API key from Firebase:", e);
+    }
+    // Fallback
+    return { "x-apisports-key": process.env.zscores || "33f4987f1f0263669d631c6e0264076c" };
+}
 
 // ==========================================
 // ⚽ محرك المباريات (The Matches Engine) ⚽
@@ -47,6 +58,7 @@ const delay = (ms) => new Promise(res => setTimeout(res, ms));
 
 async function fetchAndSyncMatches() {
     try {
+        const headers = await getHeaders();
         // جلب المباريات الحية
         const response = await axios.get(`${API_URL}fixtures?live=all`, { headers });
         const matches = response.data.response || [];
@@ -137,6 +149,8 @@ async function fetchAndSyncTransfers() {
         let allTransfers = [];
 
         console.log("Starting transfers sync...");
+
+        const headers = await getHeaders();
 
         for (const teamId of topTeams) {
             const res = await axios.get(`${API_URL}transfers?team=${teamId}`, { headers });
