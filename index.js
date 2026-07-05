@@ -23,11 +23,11 @@ if (process.env.RENDER && fs.existsSync('/etc/secrets/serviceAccountKey.json')) 
 let db;
 try {
     const serviceAccount = require(serviceAccountPath);
-    initializeApp({
+    const app = initializeApp({
         credential: cert(serviceAccount)
     });
-    db = getFirestore();
-    console.log("Firebase Connected Successfully! ✅ (using " + serviceAccountPath + ")");
+    db = getFirestore(app, "alhajby");
+    console.log("Firebase Connected Successfully! ✅ (using " + serviceAccountPath + " and database 'alhajby')");
 } catch (error) {
     console.error(`⚠️ FATAL ERROR: Could not connect to Firebase using path ${serviceAccountPath}`);
     console.error(error);
