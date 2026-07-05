@@ -1,7 +1,8 @@
 const express = require('express');
 const cron = require('node-cron');
 const axios = require('axios');
-const admin = require('firebase-admin');
+const { initializeApp, cert } = require('firebase-admin/app');
+const { getFirestore } = require('firebase-admin/firestore');
 
 // 1. إعداد تطبيق Express حتى يعمل السيرفر على Render.com (يتطلب ربط بورت)
 const app = express();
@@ -17,8 +18,8 @@ const serviceAccountPath = process.env.RENDER ? '/etc/secrets/serviceAccountKey.
 
 try {
     const serviceAccount = require(serviceAccountPath);
-    admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount)
+    initializeApp({
+        credential: cert(serviceAccount)
     });
     console.log("Firebase Connected Successfully! ✅");
 } catch (error) {
@@ -26,7 +27,7 @@ try {
     console.error(error);
 }
 
-const db = admin.firestore();
+const db = getFirestore();
 
 // 3. إعدادات API-Football
 const API_KEY = process.env.zscores || "33f4987f1f0263669d631c6e0264076c";
@@ -181,7 +182,7 @@ cron.schedule('0 */6 * * *', () => {
 // ==========================================
 // 🚀 تشغيل الخادم
 // ==========================================
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server is running on port ${PORT}`);
     // جلب أولي للبيانات عند بدء التشغيل
     fetchAndSyncMatches();
