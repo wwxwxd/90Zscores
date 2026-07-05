@@ -12,22 +12,27 @@ app.get('/', (req, res) => {
     res.send('90Zscores Backend Server is running 24/7! 🚀');
 });
 
-// 2. إعداد الاتصال بقاعدة بيانات Firebase
-// في Render، سيتم قراءة الملف من المسار السري /etc/secrets/
-const serviceAccountPath = process.env.RENDER ? '/etc/secrets/serviceAccountKey.json' : './serviceAccountKey.json';
+const fs = require('fs');
 
+// 2. إعداد الاتصال بقاعدة بيانات Firebase
+let serviceAccountPath = './serviceAccountKey.json';
+if (process.env.RENDER && fs.existsSync('/etc/secrets/serviceAccountKey.json')) {
+    serviceAccountPath = '/etc/secrets/serviceAccountKey.json';
+}
+
+let db;
 try {
     const serviceAccount = require(serviceAccountPath);
     initializeApp({
         credential: cert(serviceAccount)
     });
-    console.log("Firebase Connected Successfully! ✅");
+    db = getFirestore();
+    console.log("Firebase Connected Successfully! ✅ (using " + serviceAccountPath + ")");
 } catch (error) {
-    console.error(`⚠️ Error connecting to Firebase. Make sure 'serviceAccountKey.json' is present at ${serviceAccountPath}`);
+    console.error(`⚠️ FATAL ERROR: Could not connect to Firebase using path ${serviceAccountPath}`);
     console.error(error);
+    process.exit(1); // Exit early if Firebase cannot connect
 }
-
-const db = getFirestore();
 
 // 3. إعدادات API-Football
 const API_KEY = process.env.zscores || "33f4987f1f0263669d631c6e0264076c";
