@@ -1,6 +1,8 @@
 const express = require('express');
 const cron = require('node-cron');
 const axios = require('axios');
+const Parser = require('rss-parser');
+const parser = new Parser();
 const { initializeApp, cert } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 
@@ -195,10 +197,126 @@ async function fetchAndSyncTransfers() {
 // تشغيل محرك الانتقالات كل 6 ساعات
 cron.schedule('0 */6 * * *', () => {
     fetchAndSyncTransfers();
+    fetchAndSyncNews();
+    fetchAndSyncLeagues();
 });
 
 
 // ==========================================
+
+// ==========================================
+// 📰 محرك الأخبار (The News Engine) 📰
+// ==========================================
+
+async function fetchAndSyncNews() {
+    try {
+        console.log("Starting news sync...");
+        const feed = await parser.parseURL('https://www.filgoal.com/articles/rss');
+        
+        const newsList = feed.items.slice(0, 20).map(item => {
+            let image = 'https://media.api-sports.io/football/leagues/39.png'; // fallback
+            if (item.enclosure && item.enclosure.url) {
+                image = item.enclosure.url;
+            } else if (item.content) {
+                const imgMatch = item.content.match(/src="([^"]+)"/);
+                if (imgMatch) image = imgMatch[1];
+            }
+            
+            return {
+                title: item.title,
+                link: item.link,
+                pubDate: item.pubDate,
+                image: image,
+                source: 'FilGoal'
+            };
+        });
+        
+        await db.collection("config").doc("news_cache").set({
+            list: newsList,
+            lastUpdated: Date.now()
+        });
+        console.log(`[${new Date().toLocaleTimeString()}] Synced ${newsList.length} news articles.`);
+    } catch (err) {
+        console.error("fetchAndSyncNews Error:", err.message);
+    }
+}
+
+cron.schedule('*/15 * * * *', () => { // كل 15 دقيقة
+    fetchAndSyncNews();
+});
+
+
+// ==========================================
+// 🏆 محرك الدوريات (The Leagues Engine) 🏆
+// ==========================================
+
+async function fetchAndSyncLeagues() {
+    try {
+        console.log("Starting leagues sync...");
+        const headers = await getHeaders();
+        const MAJOR_LEAGUES = [1, 4, 9, 2, 3, 39, 140, 135, 78, 61, 71, 307, 253];
+        const leaguesData = {};
+
+        for (const leagueId of MAJOR_LEAGUES) {
+            try {
+                // Get current season
+                const leagueRes = await axios.get(`${API_URL}leagues?id=${leagueId}`, { headers });
+                const lData = leagueRes.data.response || [];
+                let season = new Date().getFullYear();
+                if (lData.length > 0) {
+                    const seasons = lData[0].seasons;
+                    const latest = seasons.sort((a,b) => b.year - a.year)[0];
+                    if (latest) season = latest.year;
+                }
+
+                const [stdRes, fixRes] = await Promise.all([
+                    axios.get(`${API_URL}standings?league=${leagueId}&season=${season}`, { headers }),
+                    axios.get(`${API_URL}fixtures?league=${leagueId}&season=${season}`, { headers })
+                ]);
+
+                let standings = [];
+                if (stdRes.data.response && stdRes.data.response.length > 0) {
+                    standings = stdRes.data.response[0].league.standings[0];
+                }
+
+                let fixtures = [];
+                if (fixRes.data.response) {
+                    // Sort matches: upcoming first, then finished
+                    fixtures = fixRes.data.response.sort((a, b) => {
+                        const aFinished = ["FT", "AET", "PEN"].includes(a.fixture.status.short);
+                        const bFinished = ["FT", "AET", "PEN"].includes(b.fixture.status.short);
+                        if (aFinished && !bFinished) return 1;
+                        if (!aFinished && bFinished) return -1;
+                        if (!aFinished && !bFinished) {
+                            return new Date(a.fixture.date) - new Date(b.fixture.date);
+                        } else {
+                            return new Date(b.fixture.date) - new Date(a.fixture.date);
+                        }
+                    });
+                }
+
+                leaguesData[leagueId] = { standings, fixtures, season };
+                await delay(1000); // لحماية الـ API من الحظر
+            } catch (err) {
+                console.error(`Error fetching league ${leagueId}:`, err.message);
+            }
+        }
+
+        await db.collection("config").doc("leagues_cache").set({
+            data: leaguesData,
+            lastUpdated: Date.now()
+        });
+
+        console.log(`[${new Date().toLocaleTimeString()}] Synced ${Object.keys(leaguesData).length} leagues data.`);
+    } catch (err) {
+        console.error("fetchAndSyncLeagues Error:", err.message);
+    }
+}
+
+cron.schedule('0 */3 * * *', () => { // كل 3 ساعات
+    fetchAndSyncLeagues();
+});
+
 // 🚀 تشغيل الخادم
 // ==========================================
 app.listen(PORT, '0.0.0.0', () => {
@@ -206,4 +324,6 @@ app.listen(PORT, '0.0.0.0', () => {
     // جلب أولي للبيانات عند بدء التشغيل
     fetchAndSyncMatches();
     fetchAndSyncTransfers();
+    fetchAndSyncNews();
+    fetchAndSyncLeagues();
 });
